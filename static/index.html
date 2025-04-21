@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passkey Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .primary {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .secondary {
+            background-color: #2196F3;
+            color: white;
+        }
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .log-info {
+            background-color: #e3f2fd;
+        }
+        .log-error {
+            background-color: #ffebee;
+        }
+        .log-success {
+            background-color: #e8f5e9;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+        .status-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status-error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .explanation {
+            background-color: #fff8e1;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .explanation h4 {
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+
+        .explanation code {
+            background-color: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Passkey Authentication Demo</h1>
+            <p>This demo shows how to use passkeys for authentication without passwords.</p>
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter your username">
+            </div>
+
+            <div class="button-group">
+                <button id="registerButton" class="primary">Register</button>
+                <button id="loginButton" class="secondary">Login</button>
+            </div>
+
+            <div id="statusMessage" class="status"></div>
+
+            <div class="explanation">
+                <h3>How Passkeys Work</h3>
+                <p>Passkeys are a more secure alternative to passwords. They use public key cryptography to authenticate users without sending any secrets over the network.</p>
+
+                <h4>Registration Process</h4>
+                <ol>
+                    <li><strong>User Identification</strong>: You enter a username to identify yourself.</li>
+                    <li><strong>Challenge Generation</strong>: The server generates a random challenge.</li>
+                    <li><strong>Key Pair Creation</strong>: Your browser creates a new public-private key pair.</li>
+                    <li><strong>Attestation</strong>: The browser signs the challenge with the private key and sends the public key to the server.</li>
+                    <li><strong>Verification</strong>: The server verifies the signature and stores the public key with your account.</li>
+                </ol>
+
+                <h4>Authentication Process</h4>
+                <ol>
+                    <li><strong>User Identification</strong>: You enter your username.</li>
+                    <li><strong>Challenge Generation</strong>: The server sends a new random challenge.</li>
+                    <li><strong>Signature Creation</strong>: Your browser uses the private key to sign the challenge.</li>
+                    <li><strong>Verification</strong>: The server verifies the signature using your stored public key.</li>
+                </ol>
+
+                <h4>Security Benefits</h4>
+                <ul>
+                    <li><strong>Phishing Resistant</strong>: Passkeys are bound to the website's origin, preventing phishing attacks.</li>
+                    <li><strong>No Shared Secrets</strong>: The private key never leaves your device.</li>
+                    <li><strong>No Password Database</strong>: Servers only store public keys, which can't be used to authenticate.</li>
+                    <li><strong>Biometric Protection</strong>: Keys can be protected by your device's biometrics (fingerprint, face).</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Detailed Logs</h2>
+            <p>This section shows detailed logs of the WebAuthn process, explaining each step.</p>
+            <div id="logContainer" class="log-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM elements
+        const usernameInput = document.getElementById('username');
+        const registerButton = document.getElementById('registerButton');
+        const loginButton = document.getElementById('loginButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const logContainer = document.getElementById('logContainer');
+
+        // Event listeners
+        registerButton.addEventListener('click', register);
+        loginButton.addEventListener('click', login);
+
+        // Functions
+        function addLog(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function showStatus(message, isError = false) {
+            statusMessage.textContent = message;
+            statusMessage.className = isError ? 'status status-error' : 'status status-success';
+            statusMessage.style.display = 'block';
+        }
+
+        async function register() {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                showStatus('Username is required', true);
+                return;
+            }
+
+            addLog(`Starting registration for user: ${username}`);
+
+            try {
+                // Begin registration
+                const requestBody = { username };
+                addLog(`Sending registration request to server: ${JSON.stringify(requestBody, null, 2)}`);
+
+                const beginResponse = await fetch('/api/register/begin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!beginResponse.ok) {
+                    const errorText = await beginResponse.text();
+                    console.error('Begin registration error:', errorText);
+                    addLog(`Registration begin failed: ${errorText}`, 'error');
+                    throw new Error(errorText);
+                }
+
+                const options = await beginResponse.json();
+                addLog(`Received registration options from server: ${JSON.stringify(options, null, 2)}`);
+                addLog(`Challenge (base64): ${options.publicKey.challenge}`);
+                addLog(`User ID (base64): ${options.publicKey.user.id}`);
+                addLog(`Relying Party ID: ${options.publicKey.rp.id}`);
+                addLog(`Relying Party Name: ${options.publicKey.rp.name}`);
+
+                // Prepare options for navigator.credentials.create
+                const publicKeyOptions = options.publicKey;
+
+                // Convert base64url-encoded values to ArrayBuffer
+                if (publicKeyOptions.user && publicKeyOptions.user.id) {
+                    publicKeyOptions.user.id = base64URLToArrayBuffer(publicKeyOptions.user.id);
+                }
+                if (publicKeyOptions.challenge) {
+                    publicKeyOptions.challenge = base64URLToArrayBuffer(publicKeyOptions.challenge);
+                }
+                if (publicKeyOptions.excludeCredentials) {
+                    for (let i = 0; i < publicKeyOptions.excludeCredentials.length; i++) {
+                        publicKeyOptions.excludeCredentials[i].id = base64URLToArrayBuffer(publicKeyOptions.excludeCredentials[i].id);
+                    }
+                }
+
+                addLog('Creating credential with browser WebAuthn API');
+                addLog('The browser will now prompt you to create a passkey');
+                addLog('This will generate a new public-private key pair on your device');
+
+                // Create credential
+                const credential = await navigator.credentials.create({
+                    publicKey: publicKeyOptions
+                });
+
+                addLog('Credential created successfully');
+                addLog(`Credential ID: ${credential.id}`);
+                addLog(`Credential Type: ${credential.type}`);
+
+                // Prepare credential for sending to server
+                const credentialData = {
+                    id: credential.id,
+                    rawId: arrayBufferToBase64URL(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        attestationObject: arrayBufferToBase64URL(credential.response.attestationObject),
+                        clientDataJSON: arrayBufferToBase64URL(credential.response.clientDataJSON)
+                    }
+                };
+
+                addLog(`Sending credential to server: ${JSON.stringify(credentialData, null, 2)}`);
+                addLog('The attestationObject contains the public key and authenticator data');
+                addLog('The clientDataJSON contains the challenge and origin information');
+
+                // Finish registration
+                const finishResponse = await fetch('/api/register/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(credentialData)
+                });
+
+                if (!finishResponse.ok) {
+                    const errorText = await finishResponse.text();
+                    console.error('Finish registration error:', errorText);
+                    addLog(`Registration finish failed: ${errorText}`, 'error');
+                    throw new Error(errorText);
+                }
+
+                const result = await finishResponse.json();
+                addLog(`Server response: ${JSON.stringify(result, null, 2)}`);
+                addLog('The server has verified the attestation and stored your public key', 'success');
+                addLog('Registration completed successfully', 'success');
+                addLog('Your private key remains on your device and was never sent to the server', 'success');
+                showStatus('Registration successful! You can now log in.');
+            } catch (error) {
+                showStatus(`Registration failed: ${error.message}`, true);
+                console.error('Registration error:', error);
+            }
+        }
+
+        async function login() {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                showStatus('Username is required', true);
+                return;
+            }
+
+            addLog(`Starting login for user: ${username}`);
+
+            try {
+                // Begin login
+                const requestBody = { username };
+                addLog(`Sending login request to server: ${JSON.stringify(requestBody, null, 2)}`);
+
+                const beginResponse = await fetch('/api/login/begin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!beginResponse.ok) {
+                    const errorText = await beginResponse.text();
+                    console.error('Begin login error:', errorText);
+                    addLog(`Login begin failed: ${errorText}`, 'error');
+                    throw new Error(errorText);
+                }
+
+                const options = await beginResponse.json();
+                addLog(`Received login options from server: ${JSON.stringify(options, null, 2)}`);
+                addLog(`Challenge (base64): ${options.publicKey.challenge}`);
+                addLog(`Allowed credentials: ${options.publicKey.allowCredentials ? options.publicKey.allowCredentials.length : 0} credential(s)`);
+
+                if (options.publicKey.allowCredentials && options.publicKey.allowCredentials.length > 0) {
+                    options.publicKey.allowCredentials.forEach((cred, i) => {
+                        addLog(`Credential ${i+1} ID: ${cred.id}`);
+                    });
+                }
+
+                // Prepare options for navigator.credentials.get
+                const publicKeyOptions = options.publicKey;
+
+                // Convert base64url-encoded values to ArrayBuffer
+                if (publicKeyOptions.challenge) {
+                    publicKeyOptions.challenge = base64URLToArrayBuffer(publicKeyOptions.challenge);
+                }
+                if (publicKeyOptions.allowCredentials) {
+                    for (let i = 0; i < publicKeyOptions.allowCredentials.length; i++) {
+                        publicKeyOptions.allowCredentials[i].id = base64URLToArrayBuffer(publicKeyOptions.allowCredentials[i].id);
+                    }
+                }
+
+                addLog('Getting credential with browser WebAuthn API');
+                addLog('The browser will now prompt you to use your passkey');
+                addLog('Your device will use the private key to sign the challenge');
+
+                // Get credential
+                const credential = await navigator.credentials.get({
+                    publicKey: publicKeyOptions
+                });
+
+                addLog('Credential retrieved successfully');
+                addLog(`Credential ID: ${credential.id}`);
+                addLog(`Credential Type: ${credential.type}`);
+
+                // Prepare credential for sending to server
+                const credentialData = {
+                    id: credential.id,
+                    rawId: arrayBufferToBase64URL(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        authenticatorData: arrayBufferToBase64URL(credential.response.authenticatorData),
+                        clientDataJSON: arrayBufferToBase64URL(credential.response.clientDataJSON),
+                        signature: arrayBufferToBase64URL(credential.response.signature),
+                        userHandle: credential.response.userHandle ? arrayBufferToBase64URL(credential.response.userHandle) : null
+                    }
+                };
+
+                addLog(`Sending assertion to server: ${JSON.stringify(credentialData, null, 2)}`);
+                addLog('The authenticatorData contains information about the authenticator');
+                addLog('The clientDataJSON contains the challenge and origin information');
+                addLog('The signature is created with your private key');
+
+                // Finish login
+                const finishResponse = await fetch('/api/login/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(credentialData)
+                });
+
+                if (!finishResponse.ok) {
+                    const errorText = await finishResponse.text();
+                    console.error('Finish login error:', errorText);
+                    addLog(`Login finish failed: ${errorText}`, 'error');
+                    throw new Error(errorText);
+                }
+
+                const result = await finishResponse.json();
+                addLog(`Server response: ${JSON.stringify(result, null, 2)}`);
+                addLog('The server has verified your signature using your stored public key', 'success');
+                addLog('Login completed successfully', 'success');
+                addLog('Your private key was never sent to the server', 'success');
+                showStatus(`Login successful! Welcome, ${result.username}.`);
+            } catch (error) {
+                showStatus(`Login failed: ${error.message}`, true);
+                console.error('Login error:', error);
+            }
+        }
+
+        // Helper functions for ArrayBuffer <-> Base64URL conversion
+        function arrayBufferToBase64URL(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function base64URLToArrayBuffer(base64url) {
+            const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Add initial log
+        addLog('Passkey demo initialized');
+    </script>
+</body>
+</html>
