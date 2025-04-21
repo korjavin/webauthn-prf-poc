@@ -145,26 +145,91 @@ async function getPrf() {
         log('Step 3: Calling navigator.credentials.get() with PRF extension...');
         log('This will prompt the authenticator to evaluate the PRF with the provided salt.');
 
+        log('Sending the following request to the authenticator:');
+        log(JSON.stringify({
+            publicKey: {
+                ...options.publicKey,
+                challenge: 'ArrayBuffer (base64): ' + bufToB64u(options.publicKey.challenge),
+                allowCredentials: options.publicKey.allowCredentials.map(cred => ({
+                    ...cred,
+                    id: 'ArrayBuffer (base64): ' + bufToB64u(cred.id)
+                })),
+                extensions: options.publicKey.extensions ? {
+                    prf: options.publicKey.extensions.prf ? {
+                        eval: options.publicKey.extensions.prf.eval ? {
+                            first: 'ArrayBuffer (base64): ' + bufToB64u(options.publicKey.extensions.prf.eval.first)
+                        } : undefined
+                    } : undefined
+                } : undefined
+            }
+        }, null, 2));
+        log('This request tells the authenticator to:');
+        log('1. Find the credential matching one of the allowCredentials IDs');
+        log('2. Use the user\'s presence (e.g., touching the authenticator) to authorize the operation');
+        log('3. Sign the challenge with the private key');
+        log('4. If the PRF extension is supported, evaluate the PRF with the provided salt');
+
         const credential = await navigator.credentials.get({
             publicKey: options.publicKey
         });
 
         log('Authenticator response received!');
+        log('Response type: ' + credential.type);
+        log('Credential ID: ' + credential.id);
+        log('Raw ID (base64): ' + bufToB64u(credential.rawId));
 
         // Step 4: Extract PRF result
         log('Step 4: Extracting PRF result from authenticator response...');
 
+        // Detailed explanation of the authenticator response
+        log('The authenticator response contains:');
+        log('1. authenticatorData: An ArrayBuffer containing:');
+        log('   - rpIdHash: SHA-256 hash of the Relying Party ID');
+        log('   - flags: Bit flags indicating user presence, user verification, etc.');
+        log('   - signCount: Counter to help detect cloned authenticators');
+        log('   - (base64): ' + bufToB64u(credential.response.authenticatorData));
+        log('2. clientDataJSON: A JSON string containing:');
+        log('   - type: "webauthn.get"');
+        log('   - challenge: The base64url-encoded challenge from the server');
+        log('   - origin: The origin that initiated the authentication');
+        log('   - crossOrigin: Whether the request was cross-origin');
+        log('   (decoded): ' + new TextDecoder().decode(credential.response.clientDataJSON));
+        log('3. signature: An ArrayBuffer containing the signature of authenticatorData and clientDataJSON');
+        log('   - (base64): ' + bufToB64u(credential.response.signature));
+        if (credential.response.userHandle) {
+            log('4. userHandle: An ArrayBuffer containing the user ID');
+            log('   - (base64): ' + bufToB64u(credential.response.userHandle));
+        }
+
+        // Extract and explain the client extension results
         const clientExtResults = credential.getClientExtensionResults();
-        log('Client extension results:', JSON.stringify(clientExtResults, null, 2));
+        log('Client extension results:');
+        log(JSON.stringify(clientExtResults, null, 2));
+        log('These extension results contain:');
+        if (clientExtResults.prf) {
+            log('- prf: The PRF extension results');
+            if (clientExtResults.prf.enabled !== undefined) {
+                log('  - enabled: ' + clientExtResults.prf.enabled + ' (whether the authenticator supports the PRF extension)');
+            }
+            if (clientExtResults.prf.results) {
+                log('  - results: The PRF evaluation results');
+            }
+        } else {
+            log('- No PRF extension results found');
+        }
 
         if (!clientExtResults.prf || !clientExtResults.prf.results || !clientExtResults.prf.results.first) {
             throw new Error('PRF extension result not found in authenticator response');
         }
 
         const prfResult = clientExtResults.prf.results.first;
-        log('PRF output (hex):', bufToHex(prfResult));
-        log('PRF output (base64):', btoa(String.fromCharCode(...new Uint8Array(prfResult))));
+        log('PRF output details:');
+        log('- Hex format: ' + bufToHex(prfResult));
+        log('- Base64 format: ' + btoa(String.fromCharCode(...new Uint8Array(prfResult))));
+        log('- Length: ' + prfResult.byteLength + ' bytes');
         log('This 32-byte value is deterministic for this credential and salt combination.');
+        log('The same credential and salt will always produce the same PRF output.');
+        log('This property makes it useful for deriving encryption keys that can be recovered later.');
 
         // Step 5: Send PRF result to server
         log('Step 5: Sending PRF result to server...');
@@ -188,6 +253,18 @@ async function getPrf() {
         const storeResult = await storeResponse.json();
         log('Server response:', JSON.stringify(storeResult, null, 2));
         log('PRF output stored successfully on the server.');
+        log('');
+        log('Security and Cryptographic Properties:');
+        log('1. Deterministic: The same credential and salt will always produce the same PRF output');
+        log('2. Credential-specific: Different credentials produce different outputs for the same salt');
+        log('3. Salt-specific: Different salts produce different outputs for the same credential');
+        log('4. High-entropy: The 32-byte output has 256 bits of entropy, suitable for cryptographic keys');
+        log('5. Server-blind: The server never sees the private key, only the PRF output');
+        log('');
+        log('Common Use Cases:');
+        log('1. Envelope encryption: Encrypt data with a key derived from the PRF output');
+        log('2. Password-less file encryption: Use the PRF output to encrypt/decrypt files');
+        log('3. Deterministic authentication: Use the PRF output as a symmetric key for authentication');
         log('');
         log('Try clicking "Get PRF Output" again to verify that the same output is produced.');
 
