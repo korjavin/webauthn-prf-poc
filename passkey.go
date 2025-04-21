@@ -103,6 +103,18 @@ func (s *UserStore) SaveUser(user *User) {
 	s.users[user.Name] = user
 }
 
+// GetUserByID returns a user by ID
+func (s *UserStore) GetUserByID(userID []byte) (*User, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for username, user := range s.users {
+		if bytes.Equal(user.ID, userID) {
+			return user, username, true
+		}
+	}
+	return nil, "", false
+}
+
 // SessionStore is an in-memory store for sessions
 type SessionStore struct {
 	sessions map[string]*webauthn.SessionData
@@ -175,6 +187,7 @@ func main() {
 	// Initialize stores
 	userStore := NewUserStore()
 	sessionStore := NewSessionStore()
+	secretStore := NewSecretStore()
 	logger.Println("Initialized in-memory stores")
 
 	// Initialize WebAuthn
@@ -383,17 +396,34 @@ func main() {
 		logger.Println("This public key will be used to verify future authentication attempts")
 		logger.Println("The private key remains on the user's device and never leaves it")
 
-		// Delete session
+		// Delete the temporary registration session
 		sessionStore.DeleteSession(sessionID)
 		logger.Println("Registration session deleted")
 
-		// Clear session cookie
+		// Create a new persistent session for the registered user
+		newSessionID, err := generateRandomString(32)
+		if err != nil {
+			logger.Printf("Failed to generate new session ID: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Create a new session with the user ID
+		newSession := &webauthn.SessionData{
+			UserID: user.ID,
+		}
+
+		// Save the new session
+		sessionStore.SaveSession(newSessionID, newSession)
+		logger.Printf("Created new persistent session for user: %s", username)
+
+		// Set a new session cookie with longer expiration
 		http.SetCookie(w, &http.Cookie{
 			Name:     "session_id",
-			Value:    "",
+			Value:    newSessionID,
 			Path:     "/",
 			HttpOnly: true,
-			MaxAge:   -1,
+			MaxAge:   3600, // 1 hour
 		})
 
 		// Return success
@@ -609,9 +639,35 @@ func main() {
 			logger.Println("Clone warning detected")
 		}
 
-		// Delete session
+		// Delete the temporary login session
 		sessionStore.DeleteSession(sessionID)
 		logger.Println("Login session deleted")
+
+		// Create a new persistent session for the authenticated user
+		newSessionID, err := generateRandomString(32)
+		if err != nil {
+			logger.Printf("Failed to generate new session ID: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Create a new session with the user ID
+		newSession := &webauthn.SessionData{
+			UserID: user.ID,
+		}
+
+		// Save the new session
+		sessionStore.SaveSession(newSessionID, newSession)
+		logger.Printf("Created new persistent session for user: %s", user.Name)
+
+		// Set a new session cookie with longer expiration
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_id",
+			Value:    newSessionID,
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   3600, // 1 hour
+		})
 
 		// Return success
 		w.Header().Set("Content-Type", "application/json")
@@ -621,6 +677,10 @@ func main() {
 		})
 		logger.Println("Login completed successfully")
 	})
+
+	// Register PRF extension handlers
+	RegisterSecretHandlers(secretStore, userStore, sessionStore, webAuthn, logger)
+	logger.Println("Registered PRF extension handlers")
 
 	// Start server
 	port := 8083

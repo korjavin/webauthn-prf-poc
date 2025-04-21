@@ -132,11 +132,24 @@
                 <button id="loginButton" class="secondary">Login</button>
             </div>
 
+            <div class="button-group" style="margin-top: 10px;">
+                <button id="addSecretBtn" class="primary">Add Secret</button>
+                <button id="getPrfBtn" class="secondary" disabled>Get PRF Output</button>
+            </div>
+
             <div id="statusMessage" class="status"></div>
 
             <div class="explanation">
                 <h3>How Passkeys Work</h3>
                 <p>Passkeys are a more secure alternative to passwords. They use public key cryptography to authenticate users without sending any secrets over the network.</p>
+
+                <h4>PRF Extension</h4>
+                <p>The WebAuthn PRF (Pseudo-Random Function) extension allows deriving a deterministic 32-byte secret from a passkey and an application-chosen salt. This can be used for envelope encryption schemes.</p>
+                <ol>
+                    <li><strong>Add Secret</strong>: Generates a random secretID and salt on the server.</li>
+                    <li><strong>Get PRF Output</strong>: Asks the authenticator to evaluate the PRF extension with that salt, returning a deterministic 32-byte blob.</li>
+                    <li><strong>Deterministic</strong>: The same credential and salt will always produce the same output.</li>
+                </ol>
 
                 <h4>Registration Process</h4>
                 <ol>
@@ -170,8 +183,15 @@
             <p>This section shows detailed logs of the WebAuthn process, explaining each step.</p>
             <div id="logContainer" class="log-container"></div>
         </div>
+
+        <div class="card">
+            <h2>PRF Output</h2>
+            <p>This section shows the PRF output from the authenticator.</p>
+            <pre id="log" class="log-container"></pre>
+        </div>
     </div>
 
+    <script src="app.js"></script>
     <script>
         // DOM elements
         const usernameInput = document.getElementById('username');
